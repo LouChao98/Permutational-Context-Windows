@@ -53,7 +53,7 @@ class LlamaForCausalLMPermCW(LlamaForCausalLM, ABC):
         position_ids = kwargs.get("position_ids", None)
         if attention_mask is not None and position_ids is None:
             # create position_ids on the fly for batch generation
-            position_ids = attention_mask.long().cumsum(-1) - 1
+            position_ids = attention_mask.long().cumsum(-1)
             position_ids.masked_fill_(attention_mask == 0, 1)
             if past_key_values:
                 position_ids = position_ids[:, -1].unsqueeze(-1)
@@ -328,14 +328,15 @@ class LlamaAttentionPermCW(LlamaAttention):
                 suf_attn_weights.triu(diagonal=1) + pre_attn_weights.tril(diagonal=-1),
             )
 
-            # con_rp = context_position_ids[:, :, None] - context_position_ids[:, None]
-            # suf_rp = suffix_position_ids[:, :, None] - context_position_ids[:, None]
-            # pre_rp = prefix_position_ids[:, :, None] - context_position_ids[:, None]
-            # rp = torch.where(
-            #     cont_mask,
-            #     con_rp,
-            #     suf_rp.triu(diagonal=1) + pre_rp.tril(diagonal=-1),
-            # )
+            con_rp = context_position_ids[:, :, None] - context_position_ids[:, None]
+            suf_rp = suffix_position_ids[:, :, None] - context_position_ids[:, None]
+            pre_rp = prefix_position_ids[:, :, None] - context_position_ids[:, None]
+            rp = torch.where(
+                cont_mask,
+                con_rp,
+                suf_rp.triu(diagonal=1) + pre_rp.tril(diagonal=-1),
+            )
+            attention_mask[rp.unsqueeze(1) < 0] = torch.finfo(attention_mask.dtype).min
 
         else:
             seq_len = kv_seq_len if position_ids is None else int(torch.max(position_ids) + 1)

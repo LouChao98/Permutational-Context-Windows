@@ -3,7 +3,7 @@ from abc import ABC
 from typing import Dict, Optional
 
 import pandas as pd
-from datasets import load_dataset
+from datasets import load_dataset, load_from_disk
 
 from constants import PROMPTS
 
@@ -58,10 +58,11 @@ class ClassificationDatasetAccess(ABC):
             self.label_mapping = default_label_mapping
 
     def _load_dataset(self):
-        if self.subset is not None:
-            dataset = load_dataset(self.dataset, self.subset)
-        else:
-            dataset = load_dataset(self.dataset)
+        dataset = load_from_disk('./data/' + self.name)
+        # if self.subset is not None:
+        #     dataset = load_dataset(self.dataset, self.subset)
+        # else:
+        #     dataset = load_dataset(self.dataset)
         if 'validation' in dataset:
             return dataset['train'], dataset['validation']
         if 'test' not in dataset:

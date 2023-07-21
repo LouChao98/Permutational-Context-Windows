@@ -22,6 +22,8 @@ python run_evaluation.py \
 --output-dir logs/sst2_naive
 ```
 
+sbatch submit24.sh run_evaluation.py --dataset sst2 --model data/llama-7b --n-windows 1 --n-shots-per-window 10 --subsample-test-set 250 --n-runs 30 --output-dir logs/sst2_llama7b_naive
+
 ### PCW
 
 ```bash
@@ -35,25 +37,7 @@ python run_evaluation.py \
 --output-dir logs/sst2_pcw
 ```
 
-Results:
-```plain
-accuracy = 0.684
-accuracy = 0.72
-accuracy = 0.66
-accuracy = 0.716
-accuracy = 0.628
-accuracy = 0.7
-accuracy = 0.708
-accuracy = 0.68
-accuracy = 0.656
-accuracy = 0.688
-accuracy = 0.616
-accuracy = 0.716
-...
-```
-
-Average: 0.6861
-
+sbatch submit24.sh run_evaluation.py --dataset sst2 --model data/llama-7b --n-windows 2 --n-shots-per-window 5 --subsample-test-set 250 --n-runs 30 --output-dir logs/sst2_llama7b_pcw
 
 ### PermCW
 
@@ -61,9 +45,16 @@ Average: 0.6861
 python run_permcw_evaluation.py \
 --dataset sst2 \
 --model openlm-research/open_llama_3b \
---n-windows 2 \
---n-shots-per-window 5 \
+--n-windows 10 \
+--n-shots-per-window 1 \
 --subsample-test-set 250 \
 --n-runs 30 \
 --output-dir logs/sst2_permcw
 ```
+
+sbatch submit24.sh run_permcw_evaluation.py --dataset sst2 --model data/llama-7b --n-windows 10 --n-shots-per-window 1 --subsample-test-set 250 --n-runs 30 --output-dir logs/sst2_llama7b_permcw
+
+
+## Results
+
+See `logs`. Currently, only exp on `sst2` is available.
