@@ -1,0 +1,1 @@
+rsync -avhHLP ai2:project/Parallel-Context-Windows/ ./ --exclude-from=rsync-exclude 

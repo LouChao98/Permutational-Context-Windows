@@ -139,8 +139,8 @@ class LlamaModelPermCW(LlamaModel, ABC):
             position_ids = position_ids.unsqueeze(0).view(-1, seq_length)
         else:
             if isinstance(position_ids, tuple):
-                *position_ids, mask = position_ids
-                position_ids = tuple(map(lambda t: t.view(-1, seq_length).long(), position_ids)) + (mask,)
+                *position_ids, mask, version = position_ids
+                position_ids = tuple(map(lambda t: t.view(-1, seq_length).long(), position_ids)) + (mask, version)
             else:
                 position_ids = position_ids.view(-1, seq_length).long()
 
@@ -300,43 +300,84 @@ class LlamaAttentionPermCW(LlamaAttention):
 
         if isinstance(position_ids, tuple):
             assert past_key_value is None
-            context_position_ids, suffix_position_ids, prefix_position_ids, cont_mask = position_ids
-            seq_len = suffix_position_ids.max() + 1
-            cos, sin = self.rotary_emb(value_states, seq_len=seq_len)
-            key_states = apply_one_rope(key_states, cos, sin, context_position_ids) 
             
-            if past_key_value is not None:
-                # reuse k, v, self_attention
-                key_states = torch.cat([past_key_value[0], key_states], dim=2)
-                value_states = torch.cat([past_key_value[1], value_states], dim=2)
+            if position_ids[-1] == 1:
+                context_position_ids, suffix_position_ids, prefix_position_ids, cont_mask, _ = position_ids
+                seq_len = suffix_position_ids.max() + 1
+                cos, sin = self.rotary_emb(value_states, seq_len=seq_len)
+                key_states = apply_one_rope(key_states, cos, sin, context_position_ids) 
+                
+                if past_key_value is not None:
+                    # reuse k, v, self_attention
+                    key_states = torch.cat([past_key_value[0], key_states], dim=2)
+                    value_states = torch.cat([past_key_value[1], value_states], dim=2)
 
-            past_key_value = (key_states, value_states) if use_cache else None
+                past_key_value = (key_states, value_states) if use_cache else None
 
-            key_states = key_states / math.sqrt(self.head_dim)
-            con_q_states = apply_one_rope(query_states, cos, sin, context_position_ids)
-            suf_q_states = apply_one_rope(query_states, cos, sin, suffix_position_ids)
-            pre_q_states = apply_one_rope(query_states, cos, sin, prefix_position_ids)
+                key_states = key_states / math.sqrt(self.head_dim)
+                suf_q_states = apply_one_rope(query_states, cos, sin, suffix_position_ids)
+                pre_q_states = apply_one_rope(query_states, cos, sin, prefix_position_ids)
 
-            con_attn_weights = torch.matmul(con_q_states, key_states.transpose(2, 3))
-            suf_attn_weights = torch.matmul(suf_q_states, key_states.transpose(2, 3))
-            pre_attn_weights = torch.matmul(pre_q_states, key_states.transpose(2, 3))
-            device = con_attn_weights.device
+                suf_attn_weights = torch.matmul(suf_q_states, key_states.transpose(2, 3))
+                pre_attn_weights = torch.matmul(pre_q_states, key_states.transpose(2, 3))
+                del suf_q_states, pre_q_states
 
-            attn_weights = torch.where(
-                cont_mask,
-                con_attn_weights,
-                suf_attn_weights.triu(diagonal=1) + pre_attn_weights.tril(diagonal=-1),
-            )
+                m1 = suf_attn_weights.triu_(diagonal=1) + pre_attn_weights.tril_(diagonal=-1)
+                del suf_attn_weights, pre_attn_weights
 
-            con_rp = context_position_ids[:, :, None] - context_position_ids[:, None]
-            suf_rp = suffix_position_ids[:, :, None] - context_position_ids[:, None]
-            pre_rp = prefix_position_ids[:, :, None] - context_position_ids[:, None]
-            rp = torch.where(
-                cont_mask,
-                con_rp,
-                suf_rp.triu(diagonal=1) + pre_rp.tril(diagonal=-1),
-            )
-            attention_mask[rp.unsqueeze(1) < 0] = torch.finfo(attention_mask.dtype).min
+                con_q_states = apply_one_rope(query_states, cos, sin, context_position_ids)
+                con_attn_weights = torch.matmul(con_q_states, key_states.transpose(2, 3))
+                attn_weights = torch.where(cont_mask, con_attn_weights, m1)
+
+                con_rp = context_position_ids[:, :, None] - context_position_ids[:, None]
+                suf_rp = suffix_position_ids[:, :, None] - context_position_ids[:, None]
+                pre_rp = prefix_position_ids[:, :, None] - context_position_ids[:, None]
+                rp = torch.where(
+                    cont_mask,
+                    con_rp,
+                    suf_rp.triu(diagonal=1) + pre_rp.tril(diagonal=-1),
+                )
+                attention_mask[rp.unsqueeze(1) < 0] = torch.finfo(attention_mask.dtype).min
+
+            elif position_ids[-1] == 3:
+                context_position_ids, suffix_position_ids, prefix_position_ids, cont_mask, _ = position_ids
+                seq_len = suffix_position_ids.max() + 1
+                cos, sin = self.rotary_emb(value_states, seq_len=seq_len)
+                key_states = apply_one_rope(key_states, cos, sin, context_position_ids) 
+                
+                if past_key_value is not None:
+                    # reuse k, v, self_attention
+                    key_states = torch.cat([past_key_value[0], key_states], dim=2)
+                    value_states = torch.cat([past_key_value[1], value_states], dim=2)
+
+                past_key_value = (key_states, value_states) if use_cache else None
+
+                key_states = key_states / math.sqrt(self.head_dim)
+                con_q_states = apply_one_rope(query_states, cos, sin, context_position_ids)
+                suf_q_states = apply_one_rope(query_states, cos, sin, suffix_position_ids)
+                pre_q_states = apply_one_rope(query_states, cos, sin, prefix_position_ids)
+
+                con_attn_weights = torch.matmul(con_q_states, key_states.transpose(2, 3))
+                suf_attn_weights = torch.matmul(suf_q_states, key_states.transpose(2, 3))
+
+                attn_weights = torch.where(cont_mask, suf_attn_weights, con_attn_weights)
+
+                zero_weight =  torch.matmul(pre_q_states, key_states[:, :, 0, None].transpose(2, 3))
+                attn_weights[..., 0] = zero_weight[..., 0]
+
+                con_rp = context_position_ids[:, :, None] - context_position_ids[:, None]
+                suf_rp = suffix_position_ids[:, :, None] - context_position_ids[:, None]
+                rp = torch.where(cont_mask, suf_rp, con_rp)
+                zero_rp = prefix_position_ids[:, :] - context_position_ids[:, 0, None]
+                rp[0, :, 0] = zero_rp
+
+                attention_mask[rp.unsqueeze(1) < 0] = torch.finfo(attention_mask.dtype).min
+            
+            rp[attention_mask[0] < -1] = -1
+            rp
+            # import matplotlib.pyplot as plt
+            # plt.imshow(attention_mask[0,0].detach().cpu().numpy() < 0)
+            # plt.savefig('att_mask.png')
 
         else:
             seq_len = kv_seq_len if position_ids is None else int(torch.max(position_ids) + 1)

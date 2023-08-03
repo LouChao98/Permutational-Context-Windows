@@ -2,6 +2,7 @@ import argparse
 import logging
 from typing import List, Optional
 
+import torch
 import pandas as pd
 from transformers import PreTrainedTokenizerBase
 
@@ -26,8 +27,8 @@ def get_dataset(dataset: str, tokenizer: PreTrainedTokenizerBase) -> (pd.DataFra
 
 def run_permcw_experiment(dataset: str, model: str, cache_dir: str, subsample_test_set: int, output_dir: str,
                        n_windows: List[int], n_shots_per_window: Optional[int], n_runs: int,
-                       random_seed: int, right_indentation: bool) -> None:
-    model = load_permcw_wrapper(model, cache_dir, right_indentation)
+                       random_seed: int, right_indentation: bool, version: int) -> None:
+    model = load_permcw_wrapper(model, cache_dir, right_indentation, version)
 
     test_df, train_df, labels = get_dataset(dataset, model.tokenizer)
 
@@ -41,7 +42,8 @@ def run_permcw_experiment(dataset: str, model: str, cache_dir: str, subsample_te
     em = ExperimentManager(test_df, train_df, model, labels, random_seed=random_seed,
                            n_shots_per_window=n_shots_per_window, subsample_test_set=subsample_test_set)
 
-    accuracies = em.run_experiment_across_shots(n_shots, n_runs)
+    with torch.inference_mode():
+        accuracies = em.run_experiment_across_shots(n_shots, n_runs)
     save_results(dataset, n_shots, accuracies, output_dir, model)
 
 
@@ -67,5 +69,6 @@ if __name__ == '__main__':
                         help="number of examples to fit in each window", type=int, default=None)
     parser.add_argument('--right-indentation', dest='right_indentation', help="ident all windows to the right",
                         action='store_true', default=False)
+    parser.add_argument('--version', default=1, type=int)
     args = parser.parse_args()
     run_permcw_experiment(**vars(args))

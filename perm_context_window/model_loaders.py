@@ -36,6 +36,7 @@ def load_permcw_wrapper(
     model_name: str,
     cache_dir: str = None,
     right_indentation: bool = False,
+    version: int=1,
 ) -> PermCWModelWrapper:
     validate_model_name(model_name)
     config = AutoConfig.from_pretrained(model_name)
@@ -59,6 +60,6 @@ def load_permcw_wrapper(
     tokenizer = load_tokenizer(model_name)
     model = model_obj.from_pretrained(model_name, **model_args).eval()
     if not multi_gpus:
-        model = model.to(device)
+        model = model.to(device).half()
 
-    return PermCWModelWrapper(model, tokenizer, device, context_window_size, right_indentation)
+    return PermCWModelWrapper(model, tokenizer, device, context_window_size, right_indentation, version)

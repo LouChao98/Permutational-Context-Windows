@@ -1,3 +1,4 @@
+import random
 from re import L
 from typing import List, Tuple, Optional, Dict
 
@@ -23,6 +24,7 @@ class PermCWModelWrapper:
         device: str,
         context_window_size: int,
         right_indentation: bool = False,
+        version: int = 1,
     ):
         self.model = model
         self.tokenizer = tokenizer
@@ -30,42 +32,79 @@ class PermCWModelWrapper:
         self.device = device
         # Left indentation is the default behavior as explained in the paper.
         self.right_indentation = right_indentation
+        
+        self.version = version
 
     def get_contexts_cache(self, contexts: List[str]) -> Dict:
+
+        assert len(contexts) == 1
+        contexts = contexts[0].split(TEXT_BETWEEN_SHOTS)
+        
         encoded_input_context = self.tokenizer(
             [text + TEXT_BETWEEN_SHOTS for text in contexts],
             return_tensors="pt",
             padding=True,
             add_special_tokens=False,
         ).to(self.device)
-
+    
         window_position_ids = torch.arange(encoded_input_context.input_ids.shape[1], device=self.device)
         max_window_length = encoded_input_context.input_ids.shape[1]
         window_length = encoded_input_context.attention_mask.sum(1)
         total_len = window_length.sum()
 
-        inp = {}
-        inp["input_ids"] = pad_left(encoded_input_context.input_ids.flatten(), self.tokenizer.bos_token_id, dim=0)
-        inp["attention_mask"] = pad_left(encoded_input_context.attention_mask.flatten(), 1, dim=0)
+        if self.version == 1:
+            inp = {}
+            inp["input_ids"] = pad_left(encoded_input_context.input_ids.flatten(), self.tokenizer.bos_token_id, dim=0)
+            inp["attention_mask"] = pad_left(encoded_input_context.attention_mask.flatten(), 1, dim=0)
 
-        context_position_ids = inp['attention_mask'].cumsum(0)
-        suffix_position_ids = context_position_ids.new_full((len(contexts), max_window_length), total_len) + window_position_ids.unsqueeze(0)
-        prefix_position_ids = suffix_position_ids - window_length.unsqueeze(1)
-        suffix_position_ids = pad_left(suffix_position_ids.flatten() + 2, 1, 0)
-        prefix_position_ids = pad_left(prefix_position_ids.flatten() + 2, 1, 0)
+            context_position_ids = inp['attention_mask'].cumsum(0)
+            suffix_position_ids = context_position_ids.new_full((len(contexts), max_window_length), total_len) + window_position_ids.unsqueeze(0)
+            prefix_position_ids = suffix_position_ids - window_length.unsqueeze(1)
+            suffix_position_ids = pad_left(suffix_position_ids.flatten() + 2, 1, 0)
+            prefix_position_ids = pad_left(prefix_position_ids.flatten() + 2, 1, 0)
 
-        context_mask = torch.arange(len(contexts), device=self.device).unsqueeze(1).repeat(1, max_window_length)
-        context_mask = pad_left(context_mask.flatten(), -1, 0)
-        context_mask = context_mask[:, None] == context_mask[None, :]
+            context_mask = torch.arange(len(contexts), device=self.device).unsqueeze(1).repeat(1, max_window_length)
+            context_mask = pad_left(context_mask.flatten(), -1, 0)
+            context_mask = context_mask[:, None] == context_mask[None, :]
 
-        inp['input_ids'] = inp['input_ids'].unsqueeze(0)
-        inp['attention_mask'] = inp['attention_mask'].unsqueeze(0)
-        inp["position_ids"] = (
-            context_position_ids.unsqueeze(0),
-            suffix_position_ids.unsqueeze(0),
-            prefix_position_ids.unsqueeze(0),
-            context_mask.unsqueeze(0),
-        )
+            inp['input_ids'] = inp['input_ids'].unsqueeze(0)
+            inp['attention_mask'] = inp['attention_mask'].unsqueeze(0)
+            inp["position_ids"] = (
+                context_position_ids.unsqueeze(0),
+                suffix_position_ids.unsqueeze(0),
+                prefix_position_ids.unsqueeze(0),
+                context_mask.unsqueeze(0),
+                1
+            )
+
+        elif self.version == 2:
+            ...
+
+        elif self.version == 3:
+            inp = {}
+            inp["input_ids"] = pad_left(encoded_input_context.input_ids.flatten(), self.tokenizer.bos_token_id, dim=0)
+            inp["attention_mask"] = pad_left(encoded_input_context.attention_mask.flatten(), 1, dim=0)
+
+            context_position_ids = inp['attention_mask'].cumsum(0)
+            suffix_position_ids = context_position_ids.new_full((len(contexts), max_window_length), total_len)
+            prefix_position_ids = suffix_position_ids + window_position_ids.unsqueeze(0) - window_length.unsqueeze(1)
+            suffix_position_ids = pad_left(suffix_position_ids.flatten(), 0, 0)
+            suffix_position_ids = suffix_position_ids + context_position_ids
+            prefix_position_ids = pad_left(prefix_position_ids.flatten() + 2, 1, 0)
+
+            context_mask = torch.arange(len(contexts), device=self.device).unsqueeze(1).repeat(1, max_window_length)
+            context_mask = pad_left(context_mask.flatten(), -1, 0)
+            context_mask = context_mask[:, None] < context_mask[None, :]
+            
+            inp['input_ids'] = inp['input_ids'].unsqueeze(0)
+            inp['attention_mask'] = inp['attention_mask'].unsqueeze(0)
+            inp["position_ids"] = (
+                context_position_ids.unsqueeze(0),
+                suffix_position_ids.unsqueeze(0),
+                prefix_position_ids.unsqueeze(0),
+                context_mask,
+                3
+            )
 
         context = self.model(**inp)
 
@@ -74,7 +113,6 @@ class PermCWModelWrapper:
         context["sum_windows_size"] = inp["attention_mask"].shape[1]
         return context
 
-    @torch.inference_mode()
     def pcw_generate(
         self,
         contexts: Optional[List[str]] = None,
